@@ -31,7 +31,7 @@ func allFieldsTx() *Transaction {
 		in.PreviousOutput.Index = uint32(0x11223344 + i)
 		in.ScriptSig = make([]byte, 3+i*250)
 		fill(in.ScriptSig)
-		in.Sequence = uint32(0xa0b0c0d0 + i)
+		in.Sequence = uint32(0xa0b0c0d0) + uint32(i)
 	}
 	tx.TransparentOutputs = make([]TxOut, 2)
 	for i := range tx.TransparentOutputs {

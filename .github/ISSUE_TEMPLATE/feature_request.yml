@@ -1,0 +1,44 @@
+name: Feature request
+description: Propose a focused improvement to the public API or supported behavior
+title: "feature: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What developer problem should the library solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the API or behavior you would like, including a short usage example when useful.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Explain existing workarounds or smaller alternatives.
+  - type: dropdown
+    id: compatibility
+    attributes:
+      label: Compatibility impact
+      options:
+        - Backward compatible
+        - Breaking change
+        - Unsure
+    validations:
+      required: true
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope
+      options:
+        - label: The request is related to Zcash version 5 transaction parsing, serialization, or hashing.
+          required: true
+        - label: I searched existing issues for a similar request.
+          required: true

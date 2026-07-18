@@ -59,6 +59,30 @@ jobs:
           CGO_ENABLED: "0"
           GOFLAGS: -mod=readonly
 
+  architecture:
+    name: Compile (linux/386)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Compile tests
+        run: go test -c -o /tmp/go-zcashblob-linux-386.test .
+        env:
+          CGO_ENABLED: "0"
+          GOARCH: "386"
+          GOOS: linux
+          GOFLAGS: -mod=readonly
+
   quality:
     name: Quality, race, and coverage
     runs-on: ubuntu-latest
@@ -77,38 +101,13 @@ jobs:
           go-version: stable
           cache: false
 
-      - name: Check formatting
+      - name: Run local quality gate
+        run: make check
+
+      - name: Add coverage summary
         shell: bash
         run: |
-          unformatted="$(gofmt -l .)"
-          if [[ -n "$unformatted" ]]; then
-            printf 'The following files need gofmt:\n%s\n' "$unformatted"
-            exit 1
-          fi
-
-      - name: Check module consistency
-        run: go mod tidy -diff
-
-      - name: Vet
-        run: go vet ./...
-        env:
-          GOFLAGS: -mod=readonly
-
-      - name: Test with race detector and coverage
-        run: >-
-          go test -race -shuffle=on -count=1 -covermode=atomic
-          -coverprofile=coverage.out ./...
-        env:
-          GOFLAGS: -mod=readonly
-
-      - name: Build coverage reports
-        shell: bash
-        run: |
-          go tool cover -func=coverage.out | tee coverage.txt
-          go tool cover -html=coverage.out -o=coverage.html
-          total="$(awk '/^total:/ { gsub(/%/, "", $3); print $3 }' coverage.txt)"
-          test -n "$total"
-          printf '%s\n' "$total" > coverage-total.txt
+          total="$(cat coverage-total.txt)"
           printf '### Coverage\n\n%s%% (minimum %s%%)\n' \
             "$total" "$COVERAGE_MIN" >> "$GITHUB_STEP_SUMMARY"
 
@@ -123,13 +122,6 @@ jobs:
             coverage-total.txt
           if-no-files-found: error
           retention-days: 30
-
-      - name: Enforce coverage floor
-        shell: bash
-        run: |
-          total="$(cat coverage-total.txt)"
-          awk -v got="$total" -v min="$COVERAGE_MIN" \
-            'BEGIN { if (got + 0 < min + 0) exit 1 }'
 
   fuzz-smoke:
     name: Fuzz smoke (${{ matrix.target }})
@@ -152,11 +144,25 @@ jobs:
           cache: false
 
       - name: Run fuzz smoke test
-        shell: bash
-        run: >-
-          go test -run='^$' -fuzz="^${FUZZ_TARGET}$"
-          -fuzztime=100000x -parallel=2 .
+        run: make fuzz-smoke FUZZ_TARGETS="${FUZZ_TARGET}"
         env:
-          CGO_ENABLED: "0"
           FUZZ_TARGET: ${{ matrix.target }}
-          GOFLAGS: -mod=readonly
+
+  ci-success:
+    name: CI success
+    if: ${{ always() }}
+    needs: [compatibility, architecture, quality, fuzz-smoke]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every CI job
+        env:
+          COMPATIBILITY_RESULT: ${{ needs.compatibility.result }}
+          ARCHITECTURE_RESULT: ${{ needs.architecture.result }}
+          QUALITY_RESULT: ${{ needs.quality.result }}
+          FUZZ_SMOKE_RESULT: ${{ needs.fuzz-smoke.result }}
+        run: |
+          test "$COMPATIBILITY_RESULT" = success
+          test "$ARCHITECTURE_RESULT" = success
+          test "$QUALITY_RESULT" = success
+          test "$FUZZ_SMOKE_RESULT" = success

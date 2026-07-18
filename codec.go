@@ -216,7 +216,8 @@ func ParseFromReader(r io.Reader) (*Transaction, error) {
 	return Parse(data)
 }
 
-// Serialize encodes tx in the ZIP-225 version 5 wire format.
+// Serialize encodes tx in the ZIP-225 version 5 wire format. It returns the
+// same validation errors as Transaction.Validate.
 func Serialize(tx *Transaction) ([]byte, error) {
 	var b bytes.Buffer
 	if e := SerializeToWriter(tx, &b); e != nil {
@@ -258,7 +259,19 @@ func invalidStructure(format string, args ...any) error {
 	return fmt.Errorf("%w: %s", ErrInvalidStructure, fmt.Sprintf(format, args...))
 }
 
-func validateForSerialization(tx *Transaction) error {
+func tooLarge(format string, args ...any) error {
+	return fmt.Errorf("%w: %s", ErrTooLarge, fmt.Sprintf(format, args...))
+}
+
+// Validate reports whether tx has a supported v5 header, internally consistent
+// authorization-vector lengths, conditional-field presence, allowed Orchard
+// flags, and an encoded size within the package safety limits.
+//
+// Validate only checks the structure needed for safe, unambiguous ZIP-225
+// serialization. It does not validate Zcash consensus rules, monetary ranges,
+// scripts, expiry, encoded curve points, note commitments, proofs, or
+// signatures. A nil receiver is reported as ErrInvalidStructure.
+func (tx *Transaction) Validate() error {
 	if tx == nil {
 		return invalidStructure("nil transaction")
 	}
@@ -277,17 +290,17 @@ func validateForSerialization(tx *Transaction) error {
 	}
 	for _, count := range counts {
 		if count.n > MaxElements {
-			return invalidStructure("too many %s", count.name)
+			return tooLarge("too many %s", count.name)
 		}
 	}
 	for _, in := range tx.TransparentInputs {
 		if len(in.ScriptSig) > MaxScriptSize {
-			return invalidStructure("transparent scriptSig exceeds limit")
+			return tooLarge("transparent scriptSig exceeds limit")
 		}
 	}
 	for _, out := range tx.TransparentOutputs {
 		if len(out.ScriptPubKey) > MaxScriptSize {
-			return invalidStructure("transparent scriptPubKey exceeds limit")
+			return tooLarge("transparent scriptPubKey exceeds limit")
 		}
 	}
 	if len(tx.Sapling.SpendProofs) != len(tx.Sapling.Spends) ||
@@ -299,13 +312,43 @@ func validateForSerialization(tx *Transaction) error {
 		return invalidStructure("Orchard authorization count mismatch")
 	}
 	if len(tx.Orchard.Proofs) > MaxProofSize {
-		return invalidStructure("Orchard proof exceeds limit")
+		return tooLarge("Orchard proof exceeds limit")
 	}
 	if tx.Orchard.Flags&^byte(0x03) != 0 {
 		return invalidStructure("reserved Orchard flag bits are set")
 	}
+	var zero32 [32]byte
+	var zero64 [64]byte
+	if len(tx.Sapling.Spends)+len(tx.Sapling.Outputs) == 0 {
+		if tx.Sapling.ValueBalance != 0 {
+			return invalidStructure("Sapling value balance without spends or outputs")
+		}
+		if tx.Sapling.BindingSig != zero64 {
+			return invalidStructure("Sapling binding signature without spends or outputs")
+		}
+	}
+	if len(tx.Sapling.Spends) == 0 && tx.Sapling.Anchor != zero32 {
+		return invalidStructure("Sapling anchor without spends")
+	}
+	if len(tx.Orchard.Actions) == 0 {
+		if tx.Orchard.Flags != 0 {
+			return invalidStructure("Orchard flags without actions")
+		}
+		if tx.Orchard.ValueBalance != 0 {
+			return invalidStructure("Orchard value balance without actions")
+		}
+		if tx.Orchard.Anchor != zero32 {
+			return invalidStructure("Orchard anchor without actions")
+		}
+		if len(tx.Orchard.Proofs) != 0 {
+			return invalidStructure("Orchard proof without actions")
+		}
+		if tx.Orchard.BindingSig != zero64 {
+			return invalidStructure("Orchard binding signature without actions")
+		}
+	}
 	if encodedSize(tx) > MaxTransactionSize {
-		return ErrTooLarge
+		return tooLarge("encoded transaction exceeds limit")
 	}
 	return nil
 }
@@ -341,13 +384,13 @@ func encodedSize(tx *Transaction) uint64 {
 	return size
 }
 
-// SerializeToWriter writes tx in the ZIP-225 version 5 wire format. It
-// validates the complete structure before writing the first byte.
+// SerializeToWriter writes tx in the ZIP-225 version 5 wire format. It calls
+// Transaction.Validate before writing the first byte.
 func SerializeToWriter(tx *Transaction, w io.Writer) error {
 	if w == nil {
 		return ErrNilWriter
 	}
-	if err := validateForSerialization(tx); err != nil {
+	if err := tx.Validate(); err != nil {
 		return err
 	}
 	e := encoder{w: w}
