@@ -59,6 +59,11 @@ func TestZIP244PinnedOfficialCorpus(t *testing.T) {
 			blob := decodeZIP244HexField(t, fields[0], "tx")
 			wantTxID := decodeZIP244DigestField(t, fields[1], "txid")
 			wantAuth := decodeZIP244DigestField(t, fields[2], "auth_digest")
+			var displayTxID [32]byte
+			for i := range wantTxID {
+				displayTxID[len(displayTxID)-1-i] = wantTxID[i]
+			}
+			wantTxIDString := hex.EncodeToString(displayTxID[:])
 
 			parsed, err := Parse(blob)
 			if err != nil {
@@ -84,6 +89,9 @@ func TestZIP244PinnedOfficialCorpus(t *testing.T) {
 					}
 					if got := tx.Hash(); got != wantTxID {
 						t.Fatalf("Hash: got %x want %x", got, wantTxID)
+					}
+					if got := tx.TxIDString(); got != wantTxIDString {
+						t.Fatalf("TxIDString: got %s want %s", got, wantTxIDString)
 					}
 					if got := tx.AuthDigest(); got != wantAuth {
 						t.Fatalf("AuthDigest: got %x want %x", got, wantAuth)

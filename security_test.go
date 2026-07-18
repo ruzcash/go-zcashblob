@@ -76,7 +76,7 @@ func TestSerializeValidatesBeforeWriting(t *testing.T) {
 	tx = emptyTx()
 	tx.TransparentOutputs = []TxOut{{ScriptPubKey: make([]byte, MaxScriptSize+1)}}
 	err = SerializeToWriter(tx, &dst)
-	if !errors.Is(err, ErrInvalidStructure) || dst.Len() != 0 {
+	if !errors.Is(err, ErrTooLarge) || dst.Len() != 0 {
 		t.Fatalf("oversized script: err=%v bytes=%d", err, dst.Len())
 	}
 }

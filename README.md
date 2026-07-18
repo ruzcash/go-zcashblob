@@ -59,7 +59,7 @@ func main() {
 	fmt.Printf("transparent inputs: %d\n", len(tx.TransparentInputs))
 	fmt.Printf("Sapling outputs: %d\n", len(tx.Sapling.Outputs))
 	fmt.Printf("Orchard actions: %d\n", len(tx.Orchard.Actions))
-	fmt.Printf("ZIP-244 txid digest: %x\n", tx.TxID())
+	fmt.Printf("transaction ID: %s\n", tx.TxIDString())
 	fmt.Printf("authorization digest: %x\n", tx.AuthDigest())
 
 	rebuilt, err := zcashblob.Serialize(tx)
@@ -70,8 +70,15 @@ func main() {
 }
 ```
 
-`TxID` returns the 32 digest bytes in hash-function order. RPCs and block
-explorers conventionally display a transaction ID with those bytes reversed.
+`TxID` returns the 32 digest bytes in hash-function order. `TxIDString` returns
+the byte-reversed, lowercase hexadecimal form conventionally shown by RPCs and
+block explorers.
+
+For programmatic construction, `NewTransactionV5` initializes the required v5
+header and version group ID for a supplied consensus branch ID. Call
+`Transaction.Validate` before hashing or serialization when fields were
+populated manually. Validation checks whether the structure can be encoded by
+this package; it does not establish consensus validity.
 
 ## Scope and safety
 
@@ -91,6 +98,19 @@ pool layouts and transaction-ID rules. `MaxTransactionSize`, `MaxScriptSize`,
 The Orchard proof length is preserved exactly instead of being forced to the
 original ZIP-225 formula. This maintains compatibility across consensus
 branches that apply different historical proof-shape rules.
+
+## Development
+
+Go 1.22 is the minimum supported version for library consumers. Contributors
+should use the current stable Go release for the complete local preflight:
+
+```sh
+make ci
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow, focused
+test and fuzz commands, platform-independent equivalents, and pull request
+expectations.
 
 ## Verification
 
@@ -126,9 +146,29 @@ go test -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s .
 go test -run='^$' -fuzz='^FuzzCompactSize$' -fuzztime=30s .
 ```
 
+## API stability
+
+This project follows [Semantic Versioning](https://semver.org/). While the
+major version is zero, minor releases may contain documented breaking API
+changes. Patch releases in the same minor series are intended to remain source
+compatible, although correctness or security fixes may reject previously
+accepted malformed data.
+
+Defensive limits exported by the package are library policies rather than
+Zcash consensus constants. Changes to those policies are called out in the
+[changelog](CHANGELOG.md).
+
 ## Specifications
 
 - [ZIP 225 — Version 5 Transaction Format](https://zips.z.cash/zip-0225)
 - [ZIP 244 — Transaction Identifier Non-Malleability](https://zips.z.cash/zip-0244)
+
+## Project documentation
+
+- [Changelog](CHANGELOG.md)
+- [Contributing guide](CONTRIBUTING.md)
+- [Design and verification notes](DESIGN.md)
+- [Release checklist](RELEASING.md)
+- [Security policy](SECURITY.md)
 
 Licensed under the MIT License.

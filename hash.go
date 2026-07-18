@@ -3,6 +3,7 @@ package zcashblob
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/hex"
 )
 
 func personal(name string, data ...[]byte) [32]byte {
@@ -22,7 +23,8 @@ func le64(v int64) []byte  { var b [8]byte; binary.LittleEndian.PutUint64(b[:], 
 
 // TxID computes the non-malleable ZIP-244 transaction identifier. The returned
 // bytes are in digest order; RPCs and explorers conventionally display them in
-// reverse order.
+// reverse order. TxID assumes that tx passes Validate; it does not repeat
+// structural validation and does not perform consensus validation.
 func (tx *Transaction) TxID() [32]byte {
 	h := personal("ZTxIdHeadersHash", le32(tx.Header), le32(tx.VersionGroupID), le32(tx.ConsensusBranchID), le32(tx.LockTime), le32(tx.ExpiryHeight))
 	prev, seq, out := []byte{}, []byte{}, []byte{}
@@ -53,11 +55,27 @@ func (tx *Transaction) TxID() [32]byte {
 	return blake2bPersonal(top, h[:], td[:], sd[:], od[:])
 }
 
-// Hash is an alias for TxID.
+// TxIDString returns the conventional lowercase hexadecimal transaction ID
+// used by Zcash RPCs and block explorers. It reverses the digest-order bytes
+// returned by TxID before encoding them.
+//
+// TxIDString has the same precondition as TxID: tx should pass Validate.
+func (tx *Transaction) TxIDString() string {
+	digest := tx.TxID()
+	var display [32]byte
+	for i := range digest {
+		display[len(display)-1-i] = digest[i]
+	}
+	return hex.EncodeToString(display[:])
+}
+
+// Hash is an alias for TxID and has the same Validate precondition.
 func (tx *Transaction) Hash() [32]byte { return tx.TxID() }
 
 // AuthDigest computes the ZIP-244 commitment to transaction authorizing data.
 // Together, TxID and AuthDigest commit to every byte of a v5 transaction.
+// AuthDigest assumes that tx passes Validate; it does not repeat structural
+// validation and does not perform consensus validation.
 func (tx *Transaction) AuthDigest() [32]byte {
 	transparent := make([]byte, 0)
 	for _, in := range tx.TransparentInputs {
