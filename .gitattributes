@@ -1,0 +1,9 @@
+* text=auto
+
+*.go text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+
+# These vendored files are byte-for-byte fixtures with pinned checksums.
+testdata/zip_0244.json text eol=lf
+testdata/LICENSE-MIT-zcash-test-vectors text eol=lf

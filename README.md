@@ -1,6 +1,7 @@
 # go-zcashblob
 
 [![CI](https://github.com/ruzcash/go-zcashblob/actions/workflows/ci.yml/badge.svg)](https://github.com/ruzcash/go-zcashblob/actions/workflows/ci.yml)
+[![Security](https://github.com/ruzcash/go-zcashblob/actions/workflows/security.yml/badge.svg)](https://github.com/ruzcash/go-zcashblob/actions/workflows/security.yml)
 [![Go Reference](https://pkg.go.dev/badge/github.com/ruzcash/go-zcashblob.svg)](https://pkg.go.dev/github.com/ruzcash/go-zcashblob)
 
 `go-zcashblob` is a dependency-free Go library for parsing, serializing, and
@@ -93,16 +94,36 @@ branches that apply different historical proof-shape rules.
 
 ## Verification
 
-The test suite includes official ZIP-244 transaction-ID and authorization
-vectors, complete writer fault injection, every-byte truncation checks,
-CompactSize boundary cases, adversarial length declarations, fuzzing seeds,
-and race-safe round trips.
+The repository carries the complete ten-case native-order ZIP-244 corpus as a
+pinned, checksum-verified fixture. Every vector is checked through both parser
+entry points for the expected transaction ID and authorization digest, then
+serialized back to the exact original bytes. The fixture's source revision,
+checksum, and license are recorded in [`testdata/README.md`](testdata/README.md).
+
+The independent tests also include:
+
+- a non-zero, all-fields semantic round trip with a fixed wire-format oracle;
+- field-by-field ZIP-244 commitment checks, including ciphertext split points;
+- a one-bit mutation check across every byte, proving that each still-parseable
+  change affects `TxID`, `AuthDigest`, or both;
+- hostile count and length declarations that must fail before large
+  allocations;
+- complete writer fault injection and validation-before-write guarantees;
+- every-byte truncation, CompactSize canonicality, and hash block boundaries;
+- raw parser and CompactSize fuzz targets.
+
+CI tests the minimum supported Go version, oldstable, and stable Go on Linux,
+plus stable Go on Windows and macOS. Separate jobs run the race
+detector, `go vet`, deterministic fuzz smoke tests, and an atomic statement
+coverage gate of 98%. Extended fuzzing and reachable-vulnerability scanning run
+on a weekly schedule as well as on demand.
 
 ```sh
-go test ./...
-go test -race ./...
+go test -count=1 ./...
+go test -race -count=1 ./...
 go vet ./...
-go test -fuzz=FuzzParse -fuzztime=30s
+go test -run='^$' -fuzz='^FuzzParse$' -fuzztime=30s .
+go test -run='^$' -fuzz='^FuzzCompactSize$' -fuzztime=30s .
 ```
 
 ## Specifications

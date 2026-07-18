@@ -2,26 +2,161 @@ name: CI
 
 on:
   push:
+    branches: [main]
   pull_request:
+  merge_group:
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GOTOOLCHAIN: local
+
 jobs:
-  test:
+  compatibility:
+    name: Test (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
     strategy:
+      fail-fast: false
       matrix:
-        go-version: ["1.22.x", "stable"]
-    runs-on: ubuntu-latest
+        include:
+          - label: linux-minimum
+            os: ubuntu-latest
+            go-version: 1.22.x
+          - label: linux-oldstable
+            os: ubuntu-latest
+            go-version: oldstable
+          - label: linux-stable
+            os: ubuntu-latest
+            go-version: stable
+          - label: windows-stable
+            os: windows-latest
+            go-version: stable
+          - label: macos-stable
+            os: macos-latest
+            go-version: stable
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-go@v7
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
           cache: false
-      - name: Check formatting
-        run: test -z "$(gofmt -l .)"
+
       - name: Test
-        run: go test -race ./...
+        run: go test -count=1 ./...
+        env:
+          CGO_ENABLED: "0"
+          GOFLAGS: -mod=readonly
+
+  quality:
+    name: Quality, race, and coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      COVERAGE_MIN: "98.0"
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Check formatting
+        shell: bash
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [[ -n "$unformatted" ]]; then
+            printf 'The following files need gofmt:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Check module consistency
+        run: go mod tidy -diff
+
       - name: Vet
         run: go vet ./...
+        env:
+          GOFLAGS: -mod=readonly
+
+      - name: Test with race detector and coverage
+        run: >-
+          go test -race -shuffle=on -count=1 -covermode=atomic
+          -coverprofile=coverage.out ./...
+        env:
+          GOFLAGS: -mod=readonly
+
+      - name: Build coverage reports
+        shell: bash
+        run: |
+          go tool cover -func=coverage.out | tee coverage.txt
+          go tool cover -html=coverage.out -o=coverage.html
+          total="$(awk '/^total:/ { gsub(/%/, "", $3); print $3 }' coverage.txt)"
+          test -n "$total"
+          printf '%s\n' "$total" > coverage-total.txt
+          printf '### Coverage\n\n%s%% (minimum %s%%)\n' \
+            "$total" "$COVERAGE_MIN" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload coverage reports
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.txt
+            coverage.html
+            coverage-total.txt
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Enforce coverage floor
+        shell: bash
+        run: |
+          total="$(cat coverage-total.txt)"
+          awk -v got="$total" -v min="$COVERAGE_MIN" \
+            'BEGIN { if (got + 0 < min + 0) exit 1 }'
+
+  fuzz-smoke:
+    name: Fuzz smoke (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [FuzzParse, FuzzCompactSize]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: stable
+          cache: false
+
+      - name: Run fuzz smoke test
+        shell: bash
+        run: >-
+          go test -run='^$' -fuzz="^${FUZZ_TARGET}$"
+          -fuzztime=100000x -parallel=2 .
+        env:
+          CGO_ENABLED: "0"
+          FUZZ_TARGET: ${{ matrix.target }}
+          GOFLAGS: -mod=readonly
